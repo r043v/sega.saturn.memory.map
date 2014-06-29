@@ -1,6 +1,8 @@
 #ifndef _smpc_
 #define _smpc_
 
+#define SMPC_ADR 0x00100000;
+
 using namespace std;
 
 #pragma pack(push, 1)
@@ -20,6 +22,7 @@ namespace SMPC
 	};
 
 	union smpc_reg {
+		u16 raw16;
 		u8 raw[2];
 		struct {
 			u8 junk;
@@ -39,7 +42,7 @@ namespace SMPC
 			u8 pen :1;
 			union {
 				enum {
-					B15 = 0x00,
+					B15  = 0x00,
 					B255 = 0x01,
 					  B0 = 0x11
 				} mode;
@@ -117,8 +120,10 @@ namespace SMPC
 			u8 junk0[16]; // 16 30
 			
 			u8 : 8;
-			enum smpc_cmd command;
-			
+			//union {
+				//u8 :8;;
+			//};
+			enum smpc_cmd command : 8;
 			//smpc_cmd_reg command;	// write 2 32
 			smpc_reg out[32];	// write 64 96
 			smpc_reg sr;		// read 2 98
@@ -136,17 +141,90 @@ namespace SMPC
 		};
 	};
 
+	union SMPC::smpc *smpc = (union SMPC::smpc*)SMPC_ADR;
+	
+	void setDate(u32 y, u32 M, u32 d, u32 wd, u32 h, u32 m, u32 s){
+		//printlr("setDate to %u.%u.%u.%u %u:%u:%u",y,M,d,wd,h,m,s);
+		while(smpc->sf.value == SMPC::enable);
+		//printlr("spmc is ready");
+		//printlr("enabled set");
+		smpc->sf.value = SMPC::enable;
+		
+		u32 tmp; u8 * tmp8 = (u8*)&tmp;
+		/* years */
+		u8 * years = tmp8; tmp=0;
+		while(y > 999){ y-=1000; years[0]++; }// printlr("%u",years[0]);
+		while(y > 99) { y-=100;  years[1]++; }// printlr("%u",years[1]);
+		while(y > 9)  { y-=10;   years[2]++; }// printlr("%u",years[2]);
+		years[3] = y;// printlr("%u",years[3]);
+		
+		//printlr("years dump : 0x%x",tmp);
+		
+		smpc->in[0].raw[0] = (years[0]&63) << 4 | ( years[1]&63 ); /* bit 0.3 *100, 4.7 *1000 */
+		smpc->in[1].raw[0] = (years[2]&63) << 4 | ( years[3]&63 ); /* bit 0.3 *1, 4.7 *10 */
+		/* week day & month */
+		smpc->in[2].raw[0] = (wd&15) << 4 | (M&15); /* bit 0.3 month (1-12), bit 4.7 week day (0~7 sun~sat) */
+		smpc->in[2].raw[1] = 0;
+		/* day */
+		tmp=0; while(d > 9){ d-=10; tmp++; } tmp = ( tmp&63 ) << 4; // *10
+		smpc->in[3].raw[0] = tmp | ( d&63 ); /* bit 0.3 *1, 4.7 *10 */
+		smpc->in[3].raw[1] = 0;
+		/* hours */
+		tmp=0; while(h > 9){ h-=10; tmp++; } tmp = ( tmp&63 ) << 4; // *10
+		smpc->in[4].raw[0] = tmp | ( h&63 ); /* bit 0.3 *1, 4.7 *10 */
+		smpc->in[4].raw[1] = 0;
+		/* minutes */
+		tmp=0; while(m > 9){ m-=10; tmp++; } tmp = ( tmp&63 ) << 4; // *10
+		smpc->in[5].raw[0] = tmp | ( m&63 ); /* bit 0.3 *1, 4.7 *10 */
+		smpc->in[5].raw[1] = 0;
+		/* seconds */
+		tmp=0; while(s > 9){ s-=10; tmp++; } tmp = ( tmp&63 ) << 4; // *10
+		smpc->in[6].raw[0] = tmp | ( s&63 ); /* bit 0.3 *1, 4.7 *10 */
+		smpc->in[6].raw[1] = 0;
+		
+		//printlr("smpc input registers");
+		/*
+		for(tmp=0;tmp<7;tmp++){
+			printlr("ireg #%u 0x%x : 0x%x",tmp,&smpc->in[tmp].raw[0],smpc->in[tmp].raw[0]);
+		}*/
+		
+		//printlr("set command to 0x%x",time_setting);
+		smpc->command = time_setting;
+		
+		
+		//printl("wait for release .. ");
+		
+		//while(smpc->sf.value == SMPC::enable);
+		
+		//printlr("released");
+		
+		//u8 * ok = &smpc->out[31].raw[0];
+		//return *ok == 0b01101000 ? true : *ok;
+		//u32 wait = 0;
+		//while(*ok != 0b01101000);// printlr("wait rtc .. %u",++wait);
+	}
+	
+	void setTime(u32 h, u32 m, u32 s){
+		//printlr("setTime to %u:%u:%u",h,m,s);
+		setDate(2014,1,29,3,h,m,s);
+	}
+
 } /* /namespace SMPC */
 
-#define SMPC_ADR 0x00100000;
-
-union SMPC::smpc *smpc = (union SMPC::smpc*)SMPC_ADR;
+union SMPC::smpc *smpc = SMPC::smpc;
 
 void resetPlease(void){
 	while(smpc->sf.value == SMPC::enable);
 	smpc->sf.value = SMPC::enable;
 	smpc->command = SMPC::reset;
+	while(smpc->sf.value == SMPC::enable);
 }
+
+/*void resetPlease(void){
+	while(smpc->sf.value == SMPC::enable);
+	smpc->sf.value = SMPC::enable;
+	smpc->command = SMPC::reset;
+}*/
 
 #pragma pack(pop)
 
